@@ -1,6 +1,5 @@
 services:
   server:
-    image: apiserver
     build:
       context: .
       dockerfile: ./Dockerfile
