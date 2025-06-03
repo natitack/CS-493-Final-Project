@@ -1,0 +1,33 @@
+services:
+  server:
+    image: apiserver
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    ports:
+      - 8000:8000
+    depends_on:
+      - mongodb
+    networks:
+      - assignment_2_network
+
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
+    env_file:
+      - .env
+    networks:
+      - assignment_2_network
+
+networks:
+  assignment_2_network:
