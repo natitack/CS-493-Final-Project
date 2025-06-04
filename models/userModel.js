@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 
 
 const userSchema = new mongoose.Schema({
@@ -32,3 +33,5 @@ userSchema.virtual('coursesEnrolled', {
   localField: '_id',
   foreignField: 'students'
 });
+
+module.exports = mongoose.model('User', userSchema);

@@ -1,3 +1,5 @@
+const mongoose = require("mongoose");
+
 const courseSchema = new mongoose.Schema({
   subject: {
     type: String,
@@ -31,3 +33,5 @@ courseSchema.virtual('assignments', {
   localField: '_id',
   foreignField: 'courseId'
 });
+
+module.exports = mongoose.model('Course', courseSchema);
