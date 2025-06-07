@@ -91,7 +91,7 @@ router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(404).json({
         error: "Assignment not found"
       });
@@ -127,22 +127,44 @@ router.patch("/:id", requireAuthentication, async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(404).json({
         error: "Assignment not found"
       });
     }
 
-    // Check if request body contains valid update fields
+    // Validate update fields
     const allowedUpdates = ['title', 'points', 'due'];
     const updateKeys = Object.keys(updates);
-    const isValidUpdate = updateKeys.length > 0 &&
-      updateKeys.every(key => allowedUpdates.includes(key));
 
-    if (!isValidUpdate) {
+    if (updateKeys.length === 0) {
       return res.status(400).json({
-        error: "Invalid update fields. Allowed fields: title, points, due"
+        error: "No update fields provided"
       });
+    }
+
+    const invalidFields = updateKeys.filter(key => !allowedUpdates.includes(key));
+    if (invalidFields.length > 0) {
+      return res.status(400).json({
+        error: `Invalid update fields: ${invalidFields.join(', ')}. Allowed fields: ${allowedUpdates.join(', ')}`
+      });
+    }
+
+    // Validate specific field types
+    if (updates.points !== undefined && (typeof updates.points !== 'number' || updates.points < 0)) {
+      return res.status(400).json({
+        error: "Points must be a non-negative number"
+      });
+    }
+
+    if (updates.due !== undefined) {
+      const dueDate = new Date(updates.due);
+      if (isNaN(dueDate.getTime())) {
+        return res.status(400).json({
+          error: "Invalid due date format"
+        });
+      }
+      updates.due = dueDate;
     }
 
     const assignment = await Assignment.findById(id).populate('courseId');
@@ -153,9 +175,8 @@ router.patch("/:id", requireAuthentication, async (req, res) => {
       });
     }
 
-    // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' &&
-      (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
+    // Authorization check
+    if (!canModifyAssignment(req.user, assignment.courseId)) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can update assignments"
       });
@@ -163,11 +184,7 @@ router.patch("/:id", requireAuthentication, async (req, res) => {
 
     // Apply updates
     Object.keys(updates).forEach(key => {
-      if (key === 'due') {
-        assignment[key] = new Date(updates[key]);
-      } else {
-        assignment[key] = updates[key];
-      }
+      assignment[key] = updates[key];
     });
 
     await assignment.save();
@@ -194,7 +211,7 @@ router.delete("/:id", requireAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(404).json({
         error: "Assignment not found"
       });
@@ -209,8 +226,7 @@ router.delete("/:id", requireAuthentication, async (req, res) => {
     }
 
     // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' &&
-      (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
+    if (!canModifyAssignment(req.user, assignment.courseId)) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can delete assignments"
       });
@@ -236,11 +252,14 @@ router.delete("/:id", requireAuthentication, async (req, res) => {
 router.get("/:id/submissions", requireAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
-    const { page = 1, studentId } = req.query;
-    const limit = 10; // Items per page
-    const skip = (page - 1) * limit;
+    const { page = 1, studentId, limit: queryLimit } = req.query;
+    
+    // Validate and set pagination parameters
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.min(50, Math.max(1, parseInt(queryLimit) || 10)); // Max 50 items per page
+    const skip = (pageNum - 1) * limitNum;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(404).json({
         error: "Assignment not found"
       });
@@ -255,8 +274,7 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
     }
 
     // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' &&
-      (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
+    if (!canModifyAssignment(req.user, assignment.courseId)) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can view submissions"
       });
@@ -265,7 +283,7 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
     // Build query
     let query = { assignmentId: id };
     if (studentId) {
-      if (!mongoose.Types.ObjectId.isValid(studentId)) {
+      if (!isValidObjectId(studentId)) {
         return res.status(400).json({
           error: "Invalid studentId format"
         });
@@ -273,14 +291,27 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
       query.studentId = studentId;
     }
 
+    const totalSubmissions = await Submission.countDocuments(query);
+    const totalPages = Math.ceil(totalSubmissions / limitNum);
+
     const submissions = await Submission.find(query)
       .skip(skip)
-      .limit(limit)
+      .limit(limitNum)
       .populate('studentId', 'name email')
       .sort({ timestamp: -1 });
 
+    const pagination = {
+      currentPage: pageNum,
+      totalPages,
+      totalItems: totalSubmissions,
+      itemsPerPage: limitNum,
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1
+    };
+
     res.status(200).json({
-      submissions
+      submissions,
+      pagination
     });
 
   } catch (error) {
@@ -296,7 +327,7 @@ router.post("/:id/submissions", requireAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(404).json({
         error: "Assignment not found"
       });
@@ -317,6 +348,12 @@ router.post("/:id/submissions", requireAuthentication, async (req, res) => {
       });
     }
 
+  /*
+  // prevent submissions past due date
+    if (new Date() > assignment.due) {
+      return sendError(res, 400, "Assignment submission deadline has passed");
+    }
+*/
     // Check if student is enrolled in the course (you'll need to implement this logic)
     // const isEnrolled = await checkStudentEnrollment(req.user.id, assignment.courseId._id);
     // if (!isEnrolled) {
@@ -330,7 +367,7 @@ router.post("/:id/submissions", requireAuthentication, async (req, res) => {
       assignmentId: id,
       studentId: req.user.id,
       timestamp: new Date(),
-      ...req.body // Add other submission fields as needed
+      ...req.body
     };
 
     const submission = new Submission(submissionData);
