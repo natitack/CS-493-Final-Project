@@ -6,6 +6,13 @@ const Submission = require("@/models/submissionModel");
 
 const { requireAuthentication } = require("./middleware/auth");
 
+const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const canModifyAssignment = (user, course) => {
+  return user.role === 'admin' ||
+    (user.role === 'instructor' && user.id === course.instructorId.toString());
+};
+
 // POST /assignments - Create a new Assignment
 router.post("/", requireAuthentication, async (req, res) => {
   try {
@@ -18,6 +25,12 @@ router.post("/", requireAuthentication, async (req, res) => {
       });
     }
 
+    if (!isValidObjectId(courseId)) {
+      return res.status(400).json({
+        error: "Invalid courseId"
+      });
+    }
+
     // Check if course exists and get instructor info
     const course = await Course.findById(courseId);
     if (!course) {
@@ -27,10 +40,22 @@ router.post("/", requireAuthentication, async (req, res) => {
     }
 
     // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' && 
-        (req.user.role !== 'instructor' || req.user.id !== course.instructorId.toString())) {
+    if (!canModifyAssignment(req.user, course)) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can create assignments"
+      });
+    }
+
+    if (typeof points !== 'number' || points < 0) {
+      return res.status(400).json({
+        error: "Points must be a non-negative number"
+      });
+    }
+
+    const dueDate = new Date(due);
+    if (isNaN(dueDate.getTime())) {
+      return res.status(400).json({
+        error: "Invalid due date format"
       });
     }
 
@@ -39,7 +64,7 @@ router.post("/", requireAuthentication, async (req, res) => {
       courseId,
       title,
       points,
-      due: new Date(due)
+      due: dueDate
     });
 
     const savedAssignment = await assignment.save();
@@ -73,7 +98,7 @@ router.get("/:id", async (req, res) => {
     }
 
     const assignment = await Assignment.findById(id).populate('courseId', 'title');
-    
+
     if (!assignment) {
       return res.status(404).json({
         error: "Assignment not found"
@@ -111,8 +136,8 @@ router.patch("/:id", requireAuthentication, async (req, res) => {
     // Check if request body contains valid update fields
     const allowedUpdates = ['title', 'points', 'due'];
     const updateKeys = Object.keys(updates);
-    const isValidUpdate = updateKeys.length > 0 && 
-                         updateKeys.every(key => allowedUpdates.includes(key));
+    const isValidUpdate = updateKeys.length > 0 &&
+      updateKeys.every(key => allowedUpdates.includes(key));
 
     if (!isValidUpdate) {
       return res.status(400).json({
@@ -121,7 +146,7 @@ router.patch("/:id", requireAuthentication, async (req, res) => {
     }
 
     const assignment = await Assignment.findById(id).populate('courseId');
-    
+
     if (!assignment) {
       return res.status(404).json({
         error: "Assignment not found"
@@ -129,8 +154,8 @@ router.patch("/:id", requireAuthentication, async (req, res) => {
     }
 
     // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' && 
-        (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
+    if (req.user.role !== 'admin' &&
+      (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can update assignments"
       });
@@ -176,7 +201,7 @@ router.delete("/:id", requireAuthentication, async (req, res) => {
     }
 
     const assignment = await Assignment.findById(id).populate('courseId');
-    
+
     if (!assignment) {
       return res.status(404).json({
         error: "Assignment not found"
@@ -184,8 +209,8 @@ router.delete("/:id", requireAuthentication, async (req, res) => {
     }
 
     // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' && 
-        (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
+    if (req.user.role !== 'admin' &&
+      (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can delete assignments"
       });
@@ -222,7 +247,7 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
     }
 
     const assignment = await Assignment.findById(id).populate('courseId');
-    
+
     if (!assignment) {
       return res.status(404).json({
         error: "Assignment not found"
@@ -230,8 +255,8 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
     }
 
     // Authorization check: admin or instructor of the course
-    if (req.user.role !== 'admin' && 
-        (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
+    if (req.user.role !== 'admin' &&
+      (req.user.role !== 'instructor' || req.user.id !== assignment.courseId.instructorId.toString())) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can view submissions"
       });
@@ -278,7 +303,7 @@ router.post("/:id/submissions", requireAuthentication, async (req, res) => {
     }
 
     const assignment = await Assignment.findById(id).populate('courseId');
-    
+
     if (!assignment) {
       return res.status(404).json({
         error: "Assignment not found"
