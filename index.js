@@ -44,27 +44,37 @@ app.use('*', function (err, req, res, next) {
   })
 })
 
+app.set('trust proxy', true); // For proper IP detection behind reverse proxy
 
 async function mongoConnect() {
-    console.log(`Attempting to connect to MongoDB at mongodb://${username}:***@mongodb:27017/${dbname}`);
-    await mongoose.connect(`mongodb://${username}:${password}@mongodb:27017/${dbname}?authSource=admin`);
-    console.log("Connected to MongoDB");
-
+    try {
+        console.log(`Attempting to connect to MongoDB...`);
+        await mongoose.connect(`mongodb://${username}:${password}@mongodb:27017/${dbname}?authSource=admin`);
+        console.log("Connected to MongoDB");
+    } catch (error) {
+        console.error("MongoDB connection failed:", error);
+        throw error; // Let startServer handle it
+    }
 }
 
+// Import and initialize Redis before starting server
+const { initRedis } = require('./middleware/ratelimit');
 
 async function startServer() {
   try {
-    // Connect to MongoDB first
+    // Initialize Redis connection
+    await initRedis();
+
+    // Connect to MongoDB
     await mongoConnect();
-    
-    // Start Express server only after successful connection
+
+    // Start Express server
     app.listen(port, function() {
       console.log("== Server is running on port", port, "+++");
     });
   } catch (err) {
     console.error("Failed to start server:", err);
-    process.exit(1);  // Exit with failure
+    process.exit(1);
   }
 }
 
