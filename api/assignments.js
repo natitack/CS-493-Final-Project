@@ -1,10 +1,10 @@
 const router = require("express").Router();
 const mongoose = require("mongoose");
-const Assignment = require("../models/assignmentModel"); // Adjust path as needed
-const Course = require("../models/courseModel"); // Adjust path as needed  
-const Submission = require("../models/submissionModel"); // Adjust path as needed
+const Assignment = require("@/models/assignmentModel");
+const Course = require("@/models/courseModel");
+const Submission = require("@/models/submissionModel");
 
-const { requireAuthenticationentication } = require("./middleware/auth"); // Adjust path as needed
+const { requireAuthentication } = require("./middleware/auth");
 
 // POST /assignments - Create a new Assignment
 router.post("/", requireAuthentication, async (req, res) => {
