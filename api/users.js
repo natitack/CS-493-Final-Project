@@ -82,14 +82,14 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Generate JWT token
+    // Generate JWT token 
     const token = jwt.sign(
       { 
         userId: user._id,
         email: user.email,
         role: user.role
       },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET_KEY || 'your-secret-key',
       { expiresIn: '24h' }
     );
 
@@ -110,31 +110,34 @@ router.get('/:id', requireAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check authorization - users can only access their own data
+    // Check authorization - users can only access their own data, admins can access any
     if (req.user.userId !== id && req.user.role !== 'admin') {
       return res.status(403).json({
-        error: 'Not authorized to access this user data'
+        error: 'The request was not made by an authenticated User satisfying the authorization criteria described above.'
       });
     }
 
-    // Find user and populate virtual fields based on role
-    let user;
-    if (req.user.role === 'instructor') {
-      user = await User.findById(id).populate('coursesTaught');
-    } else if (req.user.role === 'student') {
-      user = await User.findById(id).populate('coursesEnrolled');
-    } else {
-      user = await User.findById(id);
-    }
-
+    // Find user by ID first
+    const user = await User.findById(id);
+    
     if (!user) {
       return res.status(404).json({
-        error: 'User not found'
+        error: 'Specified Course `id` not found.'
       });
     }
 
-    // Remove password from response
-    const userResponse = user.toJSON();
+    // Populate virtual fields based on user's role
+    let populatedUser;
+    if (user.role === 'instructor') {
+      populatedUser = await User.findById(id).populate('coursesTaught');
+    } else if (user.role === 'student') {
+      populatedUser = await User.findById(id).populate('coursesEnrolled');
+    } else {
+      populatedUser = user;
+    }
+
+    // Convert to JSON and remove password
+    const userResponse = populatedUser.toJSON();
     delete userResponse.password;
 
     res.status(200).json(userResponse);
@@ -147,4 +150,4 @@ router.get('/:id', requireAuthentication, async (req, res) => {
   }
 });
 
-exports.router = router;
+module.exports = { router };

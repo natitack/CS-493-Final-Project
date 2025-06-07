@@ -10,6 +10,7 @@ const port = process.env.PORT || 8000;
 const username = process.env.MONGO_INITDB_ROOT_USERNAME;
 const password = process.env.MONGO_INITDB_ROOT_PASSWORD;
 const dbname = process.env.MONGO_INITDB_DATABASE;
+const User = require('./models/userModel'); 
 
 
 /*
@@ -57,6 +58,26 @@ async function mongoConnect() {
     }
 }
 
+async function ensureAdminUser() {
+  try {
+    const adminExists = await User.findOne({ email: 'admin@example.com' });
+    
+    if (!adminExists) {
+      const admin = new User({
+        name: 'Admin User',
+        email: 'admin@example.com',
+        password: 'adminpassword',
+        role: 'admin'
+      });
+      
+      await admin.save();
+      console.log('Admin user created');
+    }
+  } catch (error) {
+    console.error('Error ensuring admin user:', error);
+  }
+}
+
 // Import and initialize Redis before starting server
 const { initRedis } = require('./api/middleware/ratelimit');
 
@@ -67,6 +88,9 @@ async function startServer() {
 
     // Connect to MongoDB
     await mongoConnect();
+
+    ensureAdminUser();   
+
 
     // Start Express server
     app.listen(port, function() {
