@@ -29,6 +29,7 @@ services:
       MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE}
     env_file:
       - .env
+    command: mongod --quiet --logpath /dev/null 
     healthcheck:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       timeout: 1s
