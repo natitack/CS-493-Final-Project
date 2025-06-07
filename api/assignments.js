@@ -1,8 +1,8 @@
 const router = require("express").Router();
 const mongoose = require("mongoose");
-const Assignment = require("@/models/assignmentModel");
-const Course = require("@/models/courseModel");
-const Submission = require("@/models/submissionModel");
+const Assignment = require("../models/assignmentModel");
+const Course = require("../models/courseModel");
+const Submission = require("../models/submissionModel");
 
 const { requireAuthentication } = require("./middleware/auth");
 

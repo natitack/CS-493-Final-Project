@@ -58,7 +58,7 @@ async function mongoConnect() {
 }
 
 // Import and initialize Redis before starting server
-const { initRedis } = require('./middleware/ratelimit');
+const { initRedis } = require('./api/middleware/ratelimit');
 
 async function startServer() {
   try {

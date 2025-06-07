@@ -8,12 +8,16 @@ services:
       MONGO_USER: ${MONGO_USER}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
       MONGO_DB_NAME: ${MONGO_DB_NAME}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     ports:
       - 8000:8000
     depends_on:
       mongodb:
         condition: service_healthy
-        
+      redis:
+        condition: service_started
+
   mongodb:
     image: mongo:latest
     restart: always
@@ -29,3 +33,9 @@ services:
       test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
       timeout: 1s
       retries: 60
+
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - 6379:6379

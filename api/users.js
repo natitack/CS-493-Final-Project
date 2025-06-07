@@ -1,7 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
-const { requireAuthentication } = require('@/api/middleware/auth');
+const { requireAuthentication } = require('./middleware/auth');
 
 const router = express.Router();
 
@@ -147,4 +147,4 @@ router.get('/:id', requireAuthentication, async (req, res) => {
   }
 });
 
-module.exports = router;
+exports.router = router;

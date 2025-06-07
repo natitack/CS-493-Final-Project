@@ -12,7 +12,7 @@ router.get('/courses', async(req, res) => {
 
 
 //route to create a new course
-router.post('/courses' async (req, res, next) => {
+router.post('/courses', async (req, res, next) => {
 
 });
 
@@ -22,7 +22,7 @@ router.get('/courses/:id', async(req, res, next) => {
 });
 
 //route to update a course's information
-router.patch('/courses/:id' async (req, res, next) => {
+router.patch('/courses/:id', async (req, res, next) => {
 
 });
 
