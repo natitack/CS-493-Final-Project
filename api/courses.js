@@ -15,12 +15,6 @@ const canModifyCourse = (user, course) => {
          (user.role === 'instructor' && user.userId === course.instructorId.toString());
 };
 
-// Helper function to check if user can view course enrollment
-const canViewEnrollment = (user, course) => {
-  return user.role === 'admin' || 
-         (user.role === 'instructor' && user.userId === course.instructorId.toString());
-};
-
 // route to get a list of courses
 router.get('/', async(req, res) => {
   try {
@@ -101,7 +95,7 @@ router.post('/', requireAuthentication, requireAdmin, async (req, res, next) => 
     const instructor = await User.findById(instructorId);
     if (!instructor) {
       return res.status(400).json({
-        error: 'Instructor not found'
+        error: 'Instructor user not found'
       });
     }
 
@@ -310,7 +304,7 @@ router.get('/:id/students', requireAuthentication, async (req, res, next) => {
     }
 
     // Authorization check
-    if (!canViewEnrollment(req.user, course)) {
+    if (!canModifyCourse(req.user, course)) {
       return res.status(403).json({
         error: 'Unauthorized: Only admins or the course instructor can view student enrollment'
       });
@@ -348,7 +342,7 @@ router.post('/:id/students', requireAuthentication, async (req, res, next) => {
     }
 
     // Authorization check
-    if (!canViewEnrollment(req.user, course)) {
+    if (!canModifyCourse(req.user, course)) {
       return res.status(403).json({
         error: 'Unauthorized: Only admins or the course instructor can modify student enrollment'
       });
@@ -377,7 +371,7 @@ router.post('/:id/students', requireAuthentication, async (req, res, next) => {
       }
     }
 
-    // Add students (avoid duplicates)
+    // Add students (avoids duplicates)
     if (add.length > 0) {
       await Course.findByIdAndUpdate(id, {
         $addToSet: { students: { $each: add } }
@@ -422,7 +416,7 @@ router.get('/:id/roster', requireAuthentication, async (req, res, next) => {
     }
 
     // Authorization check
-    if (!canViewEnrollment(req.user, course)) {
+    if (!canModifyCourse(req.user, course)) {
       return res.status(403).json({
         error: 'Unauthorized: Only admins or the course instructor can download the course roster'
       });
