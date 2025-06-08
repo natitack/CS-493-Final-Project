@@ -62,7 +62,7 @@ async function userBasedRateLimit(req, res, next) {
       limits = RATE_LIMITS[userRole] || RATE_LIMITS.student;
     } else {
       // Fall back to IP-based rate limiting for unauthenticated users
-      userId = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+      userId = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
       userRole = 'anonymous';
       limits = RATE_LIMITS.anonymous;
     }
@@ -75,31 +75,35 @@ async function userBasedRateLimit(req, res, next) {
     const windowStart = Math.floor(now / windowMs) * windowMs;
 
     try {
-      // Use Redis pipeline for atomic operations
-      const multi = redisClient.multi();
-      multi.hGetAll(key);
-      multi.expire(key, Math.ceil(windowMs / 1000) + 1); // Set expiration
-      
-      const results = await multi.exec();
-      const bucketData = results[0] || {};
+      // Get current bucket data atomically
+      const bucketData = await redisClient.hGetAll(key);
 
-      let tokenCount = parseFloat(bucketData.tokenCount) || tokenMax;
-      let lastWindow = parseInt(bucketData.lastWindow) || windowStart;
+      let tokenCount = bucketData.tokenCount ? parseFloat(bucketData.tokenCount) : tokenMax;
+      let lastWindow = bucketData.lastWindow ? parseInt(bucketData.lastWindow) : windowStart;
+
+      console.log(`Rate limit check for ${userRole}:${userId} - Current: ${tokenCount}, Window: ${lastWindow}, Now Window: ${windowStart}`);
 
       // Reset if we're in a new window
       if (lastWindow < windowStart) {
         tokenCount = tokenMax;
         lastWindow = windowStart;
+        console.log(`New window detected, resetting to ${tokenMax} tokens`);
       }
 
       if (tokenCount >= 1) {
-        // Allow request
+        // Allow request and decrement token count
         tokenCount -= 1;
         
+        // Save updated state atomically
         await redisClient.hSet(key, {
           tokenCount: tokenCount.toString(),
           lastWindow: lastWindow.toString(),
         });
+        
+        // Set expiration to prevent key buildup
+        await redisClient.expire(key, Math.ceil(windowMs / 1000) + 10);
+        
+        console.log(`Request allowed, tokens remaining: ${tokenCount}`);
         
         // Set headers for client
         res.set({
@@ -113,6 +117,8 @@ async function userBasedRateLimit(req, res, next) {
       } else {
         // Rate limit exceeded
         const resetTime = Math.ceil((windowStart + windowMs) / 1000);
+        
+        console.log(`Rate limit exceeded for ${userRole}:${userId}`);
         
         res.set({
           'X-RateLimit-Limit': tokensPerWindow.toString(),
@@ -142,29 +148,23 @@ async function userBasedRateLimit(req, res, next) {
   }
 }
 
-
 async function ipBasedRateLimit(req, res, next) {
   try {
     const tokenMax = 10;
     const windowMs = 60 * 1000;
     const tokensPerWindow = 10;
     
-    const userIp = req.ip || req.connection.remoteAddress || req.socket.remoteAddress;
+    const userIp = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
     const key = `rate_limit:ip:${userIp}`;
 
     const now = Date.now();
     const windowStart = Math.floor(now / windowMs) * windowMs;
 
     try {
-      const multi = redisClient.multi();
-      multi.hGetAll(key);
-      multi.expire(key, Math.ceil(windowMs / 1000) + 1);
-      
-      const results = await multi.exec();
-      const bucketData = results[0] || {};
+      const bucketData = await redisClient.hGetAll(key);
 
-      let tokenCount = parseFloat(bucketData.tokenCount) || tokenMax;
-      let lastWindow = parseInt(bucketData.lastWindow) || windowStart;
+      let tokenCount = bucketData.tokenCount ? parseFloat(bucketData.tokenCount) : tokenMax;
+      let lastWindow = bucketData.lastWindow ? parseInt(bucketData.lastWindow) : windowStart;
 
       if (lastWindow < windowStart) {
         tokenCount = tokenMax;
@@ -178,6 +178,8 @@ async function ipBasedRateLimit(req, res, next) {
           tokenCount: tokenCount.toString(),
           lastWindow: lastWindow.toString(),
         });
+        
+        await redisClient.expire(key, Math.ceil(windowMs / 1000) + 10);
         
         res.set({
           'X-RateLimit-Limit': tokensPerWindow.toString(),
