@@ -1,6 +1,8 @@
 #!/bin/sh
 
+# set always/when detected when a call is made
 id=""
+token=""
 httpstatus=""
 response_body=""
 
@@ -19,6 +21,7 @@ sub_status() {
     #printf "   |-------------------------\n"
 }
 
+# extractors
 extract_id() {
     local json_file="$1"
     awk -F'"id":"' '{print $2}' "$json_file" | awk -F'"' '{print $1}'
@@ -27,52 +30,90 @@ ai_extract_status() {
     local json_file="$1"
     awk -F'"status":"' '{print $2}' "$json_file" | awk -F'"' '{print $1}'
 }
+extract_token() {
+    local json_file="$1"
+    local possible_token = $(awk -F'"token":"' '{print $2}' "$json_file" | awk -F'"' '{print $1}')
+
+    if [ -n possible_token ]; then
+        token="$possible_token"
+    fi
+}
 
 get() {
     local url="$1"
+    local _token="$2"
 
     sub_status "GET $url"
 
-    httpstatus=$(curl -s -w "%{response_code}" "$url" -o curl.out)
+    if [ -n "$_token" ]; then
+        httpstatus=$(curl -s -w "%{response_code}" -H "Authorization: Bearer $_token" "$url" -o curl.out)
+    else 
+        httpstatus=$(curl -s -w "%{response_code}" "$url" -o curl.out)
+    fi
+    
     response_body=$(cat curl.out)
     id=$(extract_id curl.out)
+    token=$(extract_token curl.out)
     rm -f curl.out
 }
 
 post_json() {
     local url="$1"
     local payload="$2"
+    local _token="$3"
 
     sub_status "POST $url"
 
-    httpstatus=$(curl -s -w "%{response_code}" -H "Content-Type: application/json" \
-        -d "$payload" "$url" -o curl.out)
+    if [ -n "$_token" ]; then
+        httpstatus=$(curl -s -w "%{response_code}" -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $_token" -d "$payload" "$url" -o curl.out)
+    else
+        httpstatus=$(curl -s -w "%{response_code}" -H "Content-Type: application/json" \
+            -d "$payload" "$url" -o curl.out)
+    fi
+
     response_body=$(cat curl.out)
     id=$(extract_id curl.out)
+    token=$(extract_token curl.out)
     rm -f curl.out
 }
 
 put_json() {
     local url="$1"
     local payload="$2"
+    local _token="$3"
 
     sub_status "POST $url"
 
-    httpstatus=$(curl -X PUT -s -w "%{response_code}" -H "Content-Type: application/json" \
-        -d "$payload" "$url" -o curl.out)
+    if [ -n "$_token" ]; then
+        httpstatus=$(curl -X PUT -s -w "%{response_code}" -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $_token" -d "$payload" "$url" -o curl.out)
+    else
+        httpstatus=$(curl -X PUT -s -w "%{response_code}" -H "Content-Type: application/json" \
+            -d "$payload" "$url" -o curl.out)
+    fi
+    
     response_body=$(cat curl.out)
     id=$(extract_id curl.out)
+    token=$(extract_token curl.out)
     rm -f curl.out
 }
 
 delete(){
     local url="$1"
+    local _token="$2"
 
     sub_status "DELETE $url"
 
-    httpstatus=$(curl -X DELETE -s -w "%{response_code}" "$url" -o curl.out)
+    if [ -n "$_token" ]; then
+        httpstatus=$(curl -X DELETE -s -w "%{response_code}" -H "Authorization: Bearer $_token" "$url" -o curl.out)
+    else
+        httpstatus=$(curl -X DELETE -s -w "%{response_code}" "$url" -o curl.out)
+    fi
+
     response_body=$(cat curl.out)
     #id=$(extract_id curl.out)
+    token=$(extract_token curl.out)
     rm -f curl.out
 }
 
@@ -104,7 +145,11 @@ URL="http://localhost:${PORT}"
 
 status "Test /assignments"
 
-sub_status "Test post /"
+post_json $URL/users/login `{
+    "email": "admin@example.com",
+    "password": "adminpassword"
+}`
+
 
 
 
