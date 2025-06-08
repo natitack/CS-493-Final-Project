@@ -99,6 +99,27 @@ put_json() {
     rm -f curl.out
 }
 
+patch_json() {
+    local url="$1"
+    local payload="$2"
+    local _token="$3"
+
+    sub_status "PATCH $url"
+
+    if [ -n "$_token" ]; then
+        httpstatus=$(curl -X PATCH -s -w "%{response_code}" -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $_token" -d "$payload" "$url" -o curl.out)
+    else
+        httpstatus=$(curl -X PATCH -s -w "%{response_code}" -H "Content-Type: application/json" \
+            -d "$payload" "$url" -o curl.out)
+    fi
+    
+    response_body=$(cat curl.out)
+    id=$(extract_id curl.out)
+    token=$(extract_token curl.out)
+    rm -f curl.out
+}
+
 delete(){
     local url="$1"
     local _token="$2"
@@ -216,7 +237,7 @@ assignment_id=$id
 get $URL/assignments/$assignment_id
 test_result 200 "Get assignment details"
 
-put_json $URL/assignments/$assignment_id '{
+patch_json $URL/assignments/$assignment_id '{
     "title": "Updated Test Assignment 1",
     "points": 120
 }' "$instructor_token"
