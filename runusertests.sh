@@ -5,11 +5,24 @@ PORT=8000
 
 BASEURL="http://${HOST}:${PORT}"
 
-GREEN=$(tput setaf 10)
+GREEN=$(tput setaf 2)
+RED=$(tput setaf 1)
 RESET=$(tput sgr0)
 
 status() {
+    printf "\n%s╓─────────────────────────────────────────────────────\n"
+    printf "║ %s\n" "$*"
+    printf "╙─────────────────────────────────────────────────────\n%s"
+}
+
+status_success() {
     printf "\n%s╓─────────────────────────────────────────────────────\n" "$GREEN"
+    printf "║ %s\n" "$*"
+    printf "╙─────────────────────────────────────────────────────\n%s" "$RESET"
+}
+
+status_fail() {
+    printf "\n%s╓─────────────────────────────────────────────────────\n" "$RED"
     printf "║ %s\n" "$*"
     printf "╙─────────────────────────────────────────────────────\n%s" "$RESET"
 }
@@ -25,9 +38,9 @@ curl -s -X POST $BASEURL/users/login \
 echo
 
 if grep -q '"token"' $tempfile; then
-    status "Admin login successful!"
+    status_success "Admin login successful!"
 else
-    status "Admin login FAILED."
+    status_fail "Admin login FAILED."
 fi
 
 # Extract token for use in next request
@@ -48,9 +61,9 @@ curl -s -X POST $BASEURL/users \
 echo
 
 if grep -q '"id"' $tempfile; then
-    status "User creation successful!"
+    status_success "User creation successful!"
 else
-    status "User creation FAILED."
+    status_fail "User creation FAILED."
 fi
 
 rm -f $tempfile
@@ -67,10 +80,10 @@ curl -s -X POST $BASEURL/users/login \
 echo
 
 if grep -q '"token"' $tempfile; then
-    status "User login successful!"
+    status_success "User login successful!"
     USER_TOKEN=$(grep '"token"' $tempfile | sed -E 's/.*"token"[ ]*:[ ]*"([^"]*)".*/\1/')
 else
-    status "User login FAILED."
+    status_fail "User login FAILED."
 fi
 
 rm -f $tempfile
@@ -88,9 +101,9 @@ curl -s -X POST $BASEURL/users/login \
 echo
 
 if grep -q '"token"' $tempfile; then
-    status "User login with invalid credentials should have FAILED but succeeded."
+    status_fail "User login with invalid credentials should have FAILED but succeeded."
 else
-    status "User login with invalid credentials correctly failed."
+    status_success "User login with invalid credentials correctly failed."
 fi
 
 rm -f $tempfile
