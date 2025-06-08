@@ -48,7 +48,7 @@ router.post("/", requireAuthentication, async (req, res) => {
     // Authorization check: admin or instructor of the course
     if (!canModifyAssignment(req.user, course)) {
       return res.status(403).json({
-        error: "Unauthorized: Only admins or the course instructor can create assignments"
+        error: "Unauthorized: Only admins or the course instructor can create assignments" + course
       });
     }
 

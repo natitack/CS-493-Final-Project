@@ -98,7 +98,7 @@ async function startServer() {
 
     // Start Express server
     app.listen(port, function() {
-      console.log("== Server is running on port", port, "+++");
+      console.log("=== Server is running on port", port, "===");
     });
   } catch (err) {
     console.error("Failed to start server:", err);
