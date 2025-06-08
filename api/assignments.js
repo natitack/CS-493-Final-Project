@@ -1,5 +1,10 @@
 const router = require("express").Router();
 const mongoose = require("mongoose");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+
 const Assignment = require("../models/assignmentModel");
 const Course = require("../models/courseModel");
 const Submission = require("../models/submissionModel");
@@ -248,12 +253,69 @@ router.delete("/:id", requireAuthentication, async (req, res) => {
   }
 });
 
+// submission related routes
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'submissions');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = crypto.randomBytes(16).toString('hex');
+    const extension = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${uniqueSuffix}${extension}`);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = [
+      'application/pdf',
+      'text/plain',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/zip',
+      'image/jpeg',
+      'image/png',
+      'text/html',
+      'application/javascript',
+      'text/css'
+    ];
+
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Please upload PDF, DOC, TXT, ZIP, or image files.'));
+    }
+  }
+});
+
+// Helper function to check if student is enrolled in course
+async function checkStudentEnrollment(studentId, courseId) {
+  try {
+    const course = await Course.findById(courseId);
+    if (!course) return false;
+    
+    return course.students && course.students.includes(studentId);
+  } catch (error) {
+    console.error("Error checking enrollment:", error);
+    return false;
+  }
+}
+
 // GET /assignments/:id/submissions - Fetch submissions for an Assignment
 router.get("/:id/submissions", requireAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
     const { page = 1, studentId, limit: queryLimit } = req.query;
-    
+
     // Validate and set pagination parameters
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(50, Math.max(1, parseInt(queryLimit) || 10)); // Max 50 items per page
@@ -273,7 +335,6 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
       });
     }
 
-    // Authorization check: admin or instructor of the course
     if (!canModifyAssignment(req.user, assignment.courseId)) {
       return res.status(403).json({
         error: "Unauthorized: Only admins or the course instructor can view submissions"
@@ -323,7 +384,7 @@ router.get("/:id/submissions", requireAuthentication, async (req, res) => {
 });
 
 // POST /assignments/:id/submissions - Create a new Submission
-router.post("/:id/submissions", requireAuthentication, async (req, res) => {
+router.post("/:id/submissions", requireAuthentication, upload.single('file'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -341,33 +402,36 @@ router.post("/:id/submissions", requireAuthentication, async (req, res) => {
       });
     }
 
-    // Authorization check: student enrolled in the course
     if (req.user.role !== 'student') {
       return res.status(403).json({
         error: "Unauthorized: Only students can create submissions"
       });
     }
 
-  /*
-  // prevent submissions past due date
-    if (new Date() > assignment.due) {
-      return sendError(res, 400, "Assignment submission deadline has passed");
+    // Check if file was uploaded
+    if (!req.file) {
+      return res.status(400).json({
+        error: "No file uploaded"
+      });
     }
-*/
-    // Check if student is enrolled in the course (you'll need to implement this logic)
-    // const isEnrolled = await checkStudentEnrollment(req.user.id, assignment.courseId._id);
-    // if (!isEnrolled) {
-    //   return res.status(403).json({
-    //     error: "Unauthorized: Student not enrolled in this course"
-    //   });
-    // }
 
-    // Create submission (you'll need to handle multipart/form-data for file uploads)
+    // Check if student is enrolled in the course
+    const isEnrolled = await checkStudentEnrollment(req.user.id, assignment.courseId._id);
+    if (!isEnrolled) {
+      return res.status(403).json({
+        error: "Unauthorized: Student not enrolled in this course"
+      });
+    }
+
+    // Generate file URL for later access
+    const fileUrl = `/api/submissions/files/${req.file.filename}`;
+
+    // Create submission
     const submissionData = {
       assignmentId: id,
       studentId: req.user.id,
       timestamp: new Date(),
-      ...req.body
+      file: fileUrl
     };
 
     const submission = new Submission(submissionData);
@@ -379,11 +443,24 @@ router.post("/:id/submissions", requireAuthentication, async (req, res) => {
 
   } catch (error) {
     console.error("Error creating submission:", error);
+    
+    // Clean up uploaded file if there was an error
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         error: "Invalid submission data: " + error.message
       });
     }
+    
+    if (error.message && error.message.includes('Invalid file type')) {
+      return res.status(400).json({
+        error: error.message
+      });
+    }
+    
     res.status(500).json({
       error: "Internal server error"
     });
