@@ -2,7 +2,6 @@ const express = require('express');
 const morgan = require('morgan');
 const mongoose = require('mongoose');
 
-
 const api = require('./api');
 
 const app = express();
@@ -11,7 +10,6 @@ const username = process.env.MONGO_INITDB_ROOT_USERNAME;
 const password = process.env.MONGO_INITDB_ROOT_PASSWORD;
 const dbname = process.env.MONGO_INITDB_DATABASE;
 const User = require('./models/userModel'); 
-
 
 /*
  * Morgan is a popular logger.
@@ -58,27 +56,70 @@ async function mongoConnect() {
     }
 }
 
-async function ensureAdminUser() {
+async function ensureDefaultUsers() {
   try {
-    const adminEmail = process.env.ADMIN_EMAIL;
-    const adminPassword = process.env.ADMIN_PASSWORD;
-    const adminName = process.env.ADMIN_NAME || 'Admin User';
+    // Admin user from environment variables
+    const testUsers = [
+      {
+      name: process.env.ADMIN_NAME || 'Admin User',
+      email: process.env.ADMIN_EMAIL || 'admin@example.com',
+      password: process.env.ADMIN_PASSWORD || 'adminpassword',
+      role: 'admin'
+      },
+      {
+      name: process.env.TEST_INSTRUCTOR_NAME || 'Test Instructor',
+      email: process.env.TEST_INSTRUCTOR_EMAIL || 'instructor@example.com',
+      password: process.env.TEST_INSTRUCTOR_PASSWORD || 'instructorpassword',
+      role: 'instructor'
+      },
+      {
+      name: process.env.TEST_STUDENT_NAME || 'Test Student',
+      email: process.env.TEST_STUDENT_EMAIL || 'student@example.com',
+      password: process.env.TEST_STUDENT_PASSWORD || 'studentpassword',
+      role: 'student'
+      }
+    ];
 
-    const adminExists = await User.findOne({ email: adminEmail });
-    
-    if (!adminExists) {
-      const admin = new User({
-        name: adminName,
-        email: adminEmail,
-        password: adminPassword,
-        role: 'admin'
-      });
+    // Only create test users in development/testing environments
+    const createTestUsers = process.env.NODE_ENV !== 'production' || process.env.CREATE_TEST_USERS === 'true';
+
+    for (const userData of testUsers) {
+      // Skip if this is the admin user and we're not creating test users
+      if (userData.role !== 'admin' && !createTestUsers) {
+        continue;
+      }
+
+      // Skip if required data is missing
+      if (!userData.email || !userData.password) {
+        if (userData.role === 'admin') {
+          console.warn('Admin email/password not provided in environment variables');
+        }
+        continue;
+      }
+
+      const existingUser = await User.findOne({ email: userData.email });
       
-      await admin.save();
-      console.log('Admin user created');
+      if (!existingUser) {
+        const user = new User({
+          name: userData.name,
+          email: userData.email,
+          password: userData.password, // Your User model should hash this in pre-save hook
+          role: userData.role
+        });
+        
+        await user.save();
+        console.log(`✓ Created ${userData.role} user: ${userData.email}`);
+      } else {
+        console.log(`- ${userData.role} user already exists: ${userData.email}`);
+      }
     }
+
+    if (createTestUsers) {
+      console.log('Test users are ready for tests');
+    }
+
   } catch (error) {
-    console.error('Error ensuring admin user:', error);
+    console.error('Error ensuring default users:', error);
   }
 }
 
@@ -93,8 +134,8 @@ async function startServer() {
     // Connect to MongoDB
     await mongoConnect();
 
-    ensureAdminUser();   
-
+    // Create admin and test users
+    await ensureDefaultUsers();
 
     // Start Express server
     app.listen(port, function() {
