@@ -19,7 +19,7 @@ async function requireAuthentication(req, res, next) {
 
       // Fetch the actual user from database to verify they still exist
       // and get current role/status
-      const user = await User.findById(payload.userId).select("+password");
+      const user = await User.findById(payload.userId);
 
       if (!user) {
         return res.status(401).json({
