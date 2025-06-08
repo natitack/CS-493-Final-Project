@@ -16,7 +16,7 @@ const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 const canModifyAssignment = (user, course) => {
   return user.role === 'admin' ||
-    (user.role === 'instructor' && user.id === course.instructorId.toString());
+    (user.role === 'instructor' && (user.id || user.userId || user._id).toString() === course.instructorId.toString());
 };
 
 // POST /assignments - Create a new Assignment
@@ -48,7 +48,7 @@ router.post("/", requireAuthentication, async (req, res) => {
     // Authorization check: admin or instructor of the course
     if (!canModifyAssignment(req.user, course)) {
       return res.status(403).json({
-        error: "Unauthorized: Only admins or the course instructor can create assignments" + course
+        error: "Unauthorized: Only admins or the course instructor can create assignments"// + course
       });
     }
 
