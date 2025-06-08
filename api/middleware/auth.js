@@ -1,111 +1,147 @@
 const jwt = require("jsonwebtoken");
 const User = require("../../models/userModel");
 
+// Constants
+const JWT_SECRET = process.env.JWT_SECRET_KEY;
+const BEARER_PREFIX = "Bearer ";
+const BEARER_PREFIX_LENGTH = 7;
+
+// Error messages
+const ERROR_MESSAGES = {
+  MISSING_AUTH_HEADER: "Authorization header missing or invalid format",
+  USER_NOT_FOUND: "User not found or token invalid",
+  TOKEN_VALIDATION_FAILED: "Token validation failed",
+  TOKEN_EXPIRED: "Token has expired",
+  INVALID_TOKEN: "Invalid token",
+  TOKEN_VERIFICATION_FAILED: "Token verification failed",
+  INTERNAL_SERVER_ERROR: "Internal server error",
+  ADMIN_ACCESS_REQUIRED: "Admin access required",
+  INSTRUCTOR_ACCESS_REQUIRED: "Instructor or admin access required",
+  ACCESS_DENIED: "Access denied: insufficient permissions"
+};
+
+// Helper functions
+const extractTokenFromHeader = (authHeader) => {
+  if (!authHeader || !authHeader.startsWith(BEARER_PREFIX)) {
+    return null;
+  }
+  return authHeader.slice(BEARER_PREFIX_LENGTH);
+};
+
+const verifyJwtToken = (token) => {
+  return jwt.verify(token, JWT_SECRET);
+};
+
+const validateUserAgainstToken = (user, payload) => {
+  if (!user) {
+    return { isValid: false, error: ERROR_MESSAGES.USER_NOT_FOUND };
+  }
+  
+  if (user.email !== payload.email) {
+    return { isValid: false, error: ERROR_MESSAGES.TOKEN_VALIDATION_FAILED };
+  }
+  
+  return { isValid: true };
+};
+
+const buildUserContext = (user) => {
+  return {
+    userId: user._id.toString(),
+    email: user.email,
+    role: user.role,
+    name: user.name,
+    userData: user
+  };
+};
+
+const handleJwtError = (jwtError) => {
+  const errorHandlers = {
+    TokenExpiredError: ERROR_MESSAGES.TOKEN_EXPIRED,
+    JsonWebTokenError: ERROR_MESSAGES.INVALID_TOKEN
+  };
+  
+  return errorHandlers[jwtError.name] || ERROR_MESSAGES.TOKEN_VERIFICATION_FAILED;
+};
+
+const sendErrorResponse = (res, statusCode, message) => {
+  return res.status(statusCode).json({ error: message });
+};
+
+const hasRole = (user, allowedRoles) => {
+  return user && allowedRoles.includes(user.role);
+};
+
+const hasOwnershipOrAdminAccess = (user, resourceUserId) => {
+  return user.role === "admin" || user.userId === resourceUserId;
+};
+
+// Main authentication middleware
 async function requireAuthentication(req, res, next) {
   try {
     const authHeader = req.get("Authorization");
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        error: "Authorization header missing or invalid format",
-      });
+    
+    // Extract and validate token from header
+    const token = extractTokenFromHeader(authHeader);
+    if (!token) {
+      return sendErrorResponse(res, 401, ERROR_MESSAGES.MISSING_AUTH_HEADER);
     }
-
-    const token = authHeader.slice(7); // Remove 'Bearer ' prefix
 
     try {
-      // Verify and decode the JWT token
-      const payload = jwt.verify(token, process.env.JWT_SECRET_KEY);
+      // Verify JWT token
+      const payload = verifyJwtToken(token);
 
-      // Fetch the actual user from database to verify they still exist
-      // and get current role/status
+      // Fetch current user from database
       const user = await User.findById(payload.userId);
 
-      if (!user) {
-        return res.status(401).json({
-          error: "User not found or token invalid",
-        });
+      // Validate user against token payload
+      const validation = validateUserAgainstToken(user, payload);
+      if (!validation.isValid) {
+        return sendErrorResponse(res, 401, validation.error);
       }
 
-      // Verify the email in token matches database
-      if (user.email !== payload.email) {
-        return res.status(401).json({
-          error: "Token validation failed",
-        });
-      }
-
-      // Attach the CURRENT user info from database to request object
-      // This ensures we have the most up-to-date role and user data
-      req.user = {
-        userId: user._id.toString(),
-        email: user.email,
-        role: user.role,
-        name: user.name,
-        // Include the full user object if needed elsewhere
-        userData: user,
-      };
-
+      // Attach user context to request
+      req.user = buildUserContext(user);
+      
       next();
+
     } catch (jwtError) {
-      if (jwtError.name === "TokenExpiredError") {
-        return res.status(401).json({
-          error: "Token has expired",
-        });
-      } else if (jwtError.name === "JsonWebTokenError") {
-        return res.status(401).json({
-          error: "Invalid token",
-        });
-      } else {
-        return res.status(401).json({
-          error: "Token verification failed",
-        });
-      }
+      const errorMessage = handleJwtError(jwtError);
+      return sendErrorResponse(res, 401, errorMessage);
     }
+
   } catch (error) {
     console.error("Authentication error:", error);
-    return res.status(500).json({
-      error: "Internal server error",
-    });
+    return sendErrorResponse(res, 500, ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
   }
 }
 
+// Role-based authorization middlewares
 function requireAdmin(req, res, next) {
-  // Now using the role from the database (via req.user.role)
-  if (req.user && req.user.role === "admin") {
-    next();
-  } else {
-    return res.status(403).json({
-      error: "Admin access required",
-    });
+  if (hasRole(req.user, ["admin"])) {
+    return next();
   }
+  
+  return sendErrorResponse(res, 403, ERROR_MESSAGES.ADMIN_ACCESS_REQUIRED);
 }
 
 function requireInstructor(req, res, next) {
-  if (
-    req.user &&
-    (req.user.role === "instructor" || req.user.role === "admin")
-  ) {
-    next();
-  } else {
-    return res.status(403).json({
-      error: "Instructor or admin access required",
-    });
+  if (hasRole(req.user, ["instructor", "admin"])) {
+    return next();
   }
+  
+  return sendErrorResponse(res, 403, ERROR_MESSAGES.INSTRUCTOR_ACCESS_REQUIRED);
 }
 
-// Middleware to check if user owns the resource or is admin
+// Resource ownership or admin access middleware factory
 function requireOwnershipOrAdmin(resourceUserIdField = "userId") {
   return (req, res, next) => {
-    const resourceUserId =
-      req.params[resourceUserIdField] || req.body[resourceUserIdField];
+    const resourceUserId = req.params[resourceUserIdField] || req.body[resourceUserIdField];
 
-    if (req.user.role === "admin" || req.user.userId === resourceUserId) {
-      next();
-    } else {
-      return res.status(403).json({
-        error: "Access denied: insufficient permissions",
-      });
+    if (hasOwnershipOrAdminAccess(req.user, resourceUserId)) {
+      return next();
     }
+    
+    return sendErrorResponse(res, 403, ERROR_MESSAGES.ACCESS_DENIED);
   };
 }
 
@@ -113,5 +149,5 @@ module.exports = {
   requireAuthentication,
   requireAdmin,
   requireInstructor,
-  requireOwnershipOrAdmin,
+  requireOwnershipOrAdmin
 };

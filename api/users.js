@@ -5,26 +5,85 @@ const { requireAuthentication } = require('./middleware/auth');
 
 const router = express.Router();
 
+// Helper functions
+const validateUserCreationInput = (name, email, password) => {
+  if (!name || !email || !password) {
+    return { isValid: false, error: 'Name, email, and password are required' };
+  }
+  return { isValid: true };
+};
+
+const validateLoginInput = (email, password) => {
+  if (!email || !password) {
+    return { isValid: false, error: 'Email and password are required' };
+  }
+  return { isValid: true };
+};
+
+const checkRoleAuthorization = (requestedRole, currentUserRole) => {
+  const privilegedRoles = ['admin', 'instructor'];
+  const isRequestingPrivilegedRole = privilegedRoles.includes(requestedRole);
+  const isCurrentUserAdmin = currentUserRole === 'admin';
+  
+  return !isRequestingPrivilegedRole || isCurrentUserAdmin;
+};
+
+const generateAuthToken = (user) => {
+  return jwt.sign(
+    { 
+      userId: user._id,
+      email: user.email,
+      role: user.role
+    },
+    process.env.JWT_SECRET_KEY || 'your-secret-key',
+    { expiresIn: '24h' }
+  );
+};
+
+const checkUserAccessPermission = (requestedUserId, currentUser) => {
+  return currentUser.userId === requestedUserId || currentUser.role === 'admin';
+};
+
+const populateUserByRole = async (userId, userRole) => {
+  const populationOptions = {
+    instructor: 'coursesTaught',
+    student: 'coursesEnrolled'
+  };
+  
+  const populateField = populationOptions[userRole];
+  
+  if (populateField) {
+    return await User.findById(userId).populate(populateField);
+  }
+  
+  return await User.findById(userId);
+};
+
+const sanitizeUserResponse = (user) => {
+  const userResponse = user.toJSON();
+  delete userResponse.password;
+  return userResponse;
+};
+
 // POST /users - Create a new user
 router.post('/', requireAuthentication, async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
-    // Validate required fields
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        error: 'Name, email, and password are required'
-      });
+    // Input validation
+    const validation = validateUserCreationInput(name, email, password);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
     }
 
-    // Check authorization for creating admin/instructor roles
-    if ((role === 'admin' || role === 'instructor') && req.user.role !== 'admin') {
+    // Authorization check for privileged roles
+    if (!checkRoleAuthorization(role, req.user.role)) {
       return res.status(403).json({
         error: 'Only admin users can create admin or instructor accounts'
       });
     }
 
-    // Check if user already exists
+    // Check for existing user
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({
@@ -32,25 +91,23 @@ router.post('/', requireAuthentication, async (req, res) => {
       });
     }
 
-    // Create new user
-    const user = new User({
+    // Create and save new user
+    const newUser = new User({
       name,
       email,
       password,
       role: role || 'student'
     });
 
-    await user.save();
+    await newUser.save();
 
     res.status(201).json({
-      id: user._id.toString()
+      id: newUser._id.toString()
     });
 
   } catch (error) {
     console.error('Error creating user:', error);
-    res.status(500).json({
-      error: 'Internal server error'
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -59,49 +116,31 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate required fields
-    if (!email || !password) {
-      return res.status(400).json({
-        error: 'Email and password are required'
-      });
+    // Input validation
+    const validation = validateLoginInput(email, password);
+    if (!validation.isValid) {
+      return res.status(400).json({ error: validation.error });
     }
 
     // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Check password
+    // Verify password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      return res.status(401).json({
-        error: 'Invalid credentials'
-      });
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Generate JWT token 
-    const token = jwt.sign(
-      { 
-        userId: user._id,
-        email: user.email,
-        role: user.role
-      },
-      process.env.JWT_SECRET_KEY || 'your-secret-key',
-      { expiresIn: '24h' }
-    );
-
-    res.status(200).json({
-      token
-    });
+    // Generate and return JWT token
+    const token = generateAuthToken(user);
+    res.status(200).json({ token });
 
   } catch (error) {
     console.error('Error during login:', error);
-    res.status(500).json({
-      error: 'Internal server error'
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -110,43 +149,32 @@ router.get('/:id', requireAuthentication, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check authorization - users can only access their own data, admins can access any
-    if (req.user.userId !== id && req.user.role !== 'admin') {
+    // Authorization check
+    if (!checkUserAccessPermission(id, req.user)) {
       return res.status(403).json({
         error: 'The request was not made by an authenticated User satisfying the authorization criteria described above.'
       });
     }
 
-    // Find user by ID first
+    // Find user by ID
     const user = await User.findById(id);
-    
     if (!user) {
       return res.status(404).json({
         error: 'Specified Course `id` not found.'
       });
     }
 
-    // Populate virtual fields based on user's role
-    let populatedUser;
-    if (user.role === 'instructor') {
-      populatedUser = await User.findById(id).populate('coursesTaught');
-    } else if (user.role === 'student') {
-      populatedUser = await User.findById(id).populate('coursesEnrolled');
-    } else {
-      populatedUser = user;
-    }
+    // Populate user data based on role
+    const populatedUser = await populateUserByRole(id, user.role);
 
-    // Convert to JSON and remove password
-    const userResponse = populatedUser.toJSON();
-    delete userResponse.password;
+    // Sanitize response (remove password)
+    const userResponse = sanitizeUserResponse(populatedUser);
 
     res.status(200).json(userResponse);
 
   } catch (error) {
     console.error('Error fetching user:', error);
-    res.status(500).json({
-      error: 'Internal server error'
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
