@@ -60,13 +60,17 @@ async function mongoConnect() {
 
 async function ensureAdminUser() {
   try {
-    const adminExists = await User.findOne({ email: 'admin@example.com' });
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    const adminName = process.env.ADMIN_NAME || 'Admin User';
+
+    const adminExists = await User.findOne({ email: adminEmail });
     
     if (!adminExists) {
       const admin = new User({
-        name: 'Admin User',
-        email: 'admin@example.com',
-        password: 'adminpassword',
+        name: adminName,
+        email: adminEmail,
+        password: adminPassword,
         role: 'admin'
       });
       
