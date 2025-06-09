@@ -303,7 +303,7 @@ async function checkStudentEnrollment(studentId, courseId) {
   try {
     const course = await Course.findById(courseId);
     if (!course) return false;
-    
+
     return course.students && course.students.includes(studentId);
   } catch (error) {
     console.error("Error checking enrollment:", error);
@@ -314,8 +314,8 @@ async function checkStudentEnrollment(studentId, courseId) {
 async function canAccessSubmissionFile(user, filename) {
   try {
     // Find the submission with this filename
-    const submission = await Submission.findOne({ 
-      file: { $regex: filename } 
+    const submission = await Submission.findOne({
+      file: { $regex: filename }
     }).populate({
       path: 'assignmentId',
       populate: {
@@ -330,14 +330,14 @@ async function canAccessSubmissionFile(user, filename) {
 
     // Instructor can access files from their courses
     if (user.role === 'instructor') {
-      return (user.id || user.userId || user._id).toString() === 
-             submission.assignmentId.courseId.instructorId.toString();
+      return (user.id || user.userId || user._id).toString() ===
+        submission.assignmentId.courseId.instructorId.toString();
     }
 
     // Student can only access their own files
     if (user.role === 'student') {
-      return (user.id || user.userId || user._id).toString() === 
-             submission.studentId.toString();
+      return (user.id || user.userId || user._id).toString() ===
+        submission.studentId.toString();
     }
 
     return false;
@@ -453,20 +453,21 @@ router.post("/:id/submissions", requireAuthentication, upload.single('file'), as
     }
 
     // Check if student is enrolled in the course
-    const isEnrolled = await checkStudentEnrollment(req.user.id, assignment.courseId._id);
+    const isEnrolled = await checkStudentEnrollment(req.user.userId, assignment.courseId._id);
     if (!isEnrolled) {
       return res.status(403).json({
         error: "Unauthorized: Student not enrolled in this course"
       });
     }
 
+
     // Generate file URL for later access - Updated to point to the correct download route
-    const fileUrl = `/api/assignments/submissions/download/${req.file.filename}`;
+    const fileUrl = `/assignments/submissions/download/${req.file.filename}`;
 
     // Create submission
     const submissionData = {
       assignmentId: id,
-      studentId: req.user.id,
+      studentId: req.user.userId,
       timestamp: new Date(),
       file: fileUrl
     };
@@ -480,24 +481,24 @@ router.post("/:id/submissions", requireAuthentication, upload.single('file'), as
 
   } catch (error) {
     console.error("Error creating submission:", error);
-    
+
     // Clean up uploaded file if there was an error
     if (req.file && req.file.path && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    
+
     if (error.name === 'ValidationError') {
       return res.status(400).json({
         error: "Invalid submission data: " + error.message
       });
     }
-    
+
     if (error.message && error.message.includes('Invalid file type')) {
       return res.status(400).json({
         error: error.message
       });
     }
-    
+
     res.status(500).json({
       error: "Internal server error"
     });
@@ -528,7 +529,7 @@ router.get("/submissions/download/:filename", requireAuthentication, async (req,
 
     // Get file stats for proper headers
     const stats = fs.statSync(filePath);
-    
+
     // Set appropriate headers
     res.set({
       'Content-Type': 'application/octet-stream',

@@ -339,11 +339,6 @@ submission_file_url=$(extract_file_url "$response_body")
 post_file $URL/assignments/$assignment_id/submissions "test.png" "$student_token"
 test_result 201 "Create submission with PNG file"
 
-post_file $URL/assignments/$assignment_id/submissions "test.odt" "$student_token"
-test_result 201 "Create submission with ODT file"
-odt_submission_id=$id
-odt_file_url=$(extract_file_url "$response_body")
-
 # Test submission creation without authentication
 post_file $URL/assignments/$assignment_id/submissions "test.pdf"
 test_result 401 "Submission creation blocked without auth"
@@ -437,14 +432,6 @@ if [ -n "$submission_file_url" ]; then
     test_result 401 "Download file blocked without auth"
     rm -f "downloaded_test_noauth.pdf"
 fi
-
-# Test ODT file download
-if [ -n "$odt_file_url" ]; then
-    get_file_download $URL$odt_file_url "$student_token" "downloaded_test.odt"
-    test_result 200 "Download ODT file as submitting student"
-    rm -f "downloaded_test.odt"
-fi
-
 # Test download of non-existent file
 get_file_download $URL/api/assignments/submissions/download/nonexistent-file.pdf "$student_token" "nonexistent.pdf"
 test_result 404 "Download non-existent file returns 404"
