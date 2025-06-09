@@ -311,6 +311,42 @@ async function checkStudentEnrollment(studentId, courseId) {
   }
 }
 
+async function canAccessSubmissionFile(user, filename) {
+  try {
+    // Find the submission with this filename
+    const submission = await Submission.findOne({ 
+      file: { $regex: filename } 
+    }).populate({
+      path: 'assignmentId',
+      populate: {
+        path: 'courseId'
+      }
+    });
+
+    if (!submission) return false;
+
+    // Admin can access any file
+    if (user.role === 'admin') return true;
+
+    // Instructor can access files from their courses
+    if (user.role === 'instructor') {
+      return (user.id || user.userId || user._id).toString() === 
+             submission.assignmentId.courseId.instructorId.toString();
+    }
+
+    // Student can only access their own files
+    if (user.role === 'student') {
+      return (user.id || user.userId || user._id).toString() === 
+             submission.studentId.toString();
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error checking file access:", error);
+    return false;
+  }
+}
+
 // GET /assignments/:id/submissions - Fetch submissions for an Assignment
 router.get("/:id/submissions", requireAuthentication, async (req, res) => {
   try {
@@ -424,8 +460,8 @@ router.post("/:id/submissions", requireAuthentication, upload.single('file'), as
       });
     }
 
-    // Generate file URL for later access
-    const fileUrl = `/api/submissions/files/${req.file.filename}`;
+    // Generate file URL for later access - Updated to point to the correct download route
+    const fileUrl = `/api/assignments/submissions/download/${req.file.filename}`;
 
     // Create submission
     const submissionData = {
@@ -462,6 +498,50 @@ router.post("/:id/submissions", requireAuthentication, upload.single('file'), as
       });
     }
     
+    res.status(500).json({
+      error: "Internal server error"
+    });
+  }
+});
+
+router.get("/submissions/download/:filename", requireAuthentication, async (req, res) => {
+  try {
+    const { filename } = req.params;
+
+    // Check if user has permission to access this file
+    const canAccess = await canAccessSubmissionFile(req.user, filename);
+    if (!canAccess) {
+      return res.status(403).json({
+        error: "Unauthorized: Cannot access this file"
+      });
+    }
+
+    // Construct file path
+    const filePath = path.join(__dirname, '..', 'uploads', 'submissions', filename);
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: "File not found"
+      });
+    }
+
+    // Get file stats for proper headers
+    const stats = fs.statSync(filePath);
+    
+    // Set appropriate headers
+    res.set({
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': stats.size,
+      'Content-Disposition': `attachment; filename="${filename}"`
+    });
+
+    // Stream the file
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+
+  } catch (error) {
+    console.error("Error downloading file:", error);
     res.status(500).json({
       error: "Internal server error"
     });
